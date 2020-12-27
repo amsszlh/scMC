@@ -6,13 +6,13 @@
 - scMC learns a shared reduced dimensional embedding of cells that retains the biological variation while removing the technical variation. This shared embedding can enhance a variety of single cell analysis tasks, such as low-dimensional visualization, cell clustering and pseudotemporal trajectory inference. 
 
 ## Installation
-scMC R package can be easily installed from Github using devtools:  
+To make it easy to run scMC in most common scRNA-seq data analysis pipelines, scMC is now implemented within Seurat V3 workflow. Please first **[install Seurat R pacakge (>= 3.2.1)](https://satijalab.org/seurat/install.html)** via ```install.packages('Seurat')```. For the standalone implementent of scMC and reproducing results from manuscript, please check out [previous release](http://doi.org/10.5281/zenodo.4395119).
+
+scMC R package can then be easily installed from Github using devtools:  
 
 ```
 devtools::install_github("amsszlh/scMC")
 ```
-
-To make it easy to run scMC in most common scRNA-seq data analysis pipelines, scMC is now implemented within Seurat V3 workflow. Please also **[install Seurat R pacakge (>= 3.2.1)](https://satijalab.org/seurat/install.html)** via ```install.packages('Seurat')```. For the standalone implementent of scMC and reproducing results from manuscript, please check out [previous release](http://doi.org/10.5281/zenodo.4395119).
  
 ### Installation of other dependencies
 - Install Leiden python pacakge for identifying cell clusters: ```pip install leidenalg```. Please check [here](https://github.com/vtraag/leidenalg) if you encounter any issue.
