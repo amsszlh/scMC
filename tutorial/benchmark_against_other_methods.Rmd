@@ -1,0 +1,146 @@
+
+---
+title: 'Comparison of scMC against other methods on a mouse skin dermis dataset'
+author: "Lihua Zhang"
+date: "`r format(Sys.time(), '%d/%m/%y')`"
+output:
+  html_document: default
+mainfont: Arial
+vignette: |
+  %\VignetteIndexEntry{Integrating and comparing multiple single cell genomic datasets using scMC} %\VignetteEngine{knitr::rmarkdown} %\VignetteEncoding{UTF-8}
+---
+
+```{r setup, include = FALSE}
+knitr::opts_chunk$set(
+  collapse = TRUE,
+  comment = "#>",
+  root.dir = './'
+)
+```
+
+Here we showcase scMC’s superior performance in detecting context-shared and -specific biological signals by applying it to a mouse skin scRNA-seq dataset and comparing it with other methods, including [Seurat](https://satijalab.org/seurat/v3.2/immune_alignment.html), [Harmony](http://htmlpreview.github.io/?https://github.com/immunogenomics/harmony/blob/master/docs/SeuratV3.html) and [LIGER](https://htmlpreview.github.io/?https://github.com/satijalab/seurat.wrappers/blob/master/docs/liger.html). This dataset contains cells from control and Hedgehog (Hh) activation conditions during skin wound healing.
+
+# Import data
+We load a list of preprocessed Seurat objects (one per dataset). The column `clusters.final` in the meta.data represents the annotated cell labels, which are determined based on the cell clusters identified using scMC by examining the expression patterns of known markers. 
+```{r message=FALSE,warning=FALSE}
+load("/Users/suoqinjin/Documents/scMC-master/tutorial/SeuratObjectList_benchmark_dermis.RData")
+```
+
+# Perform an integrated analysis using scMC
+```{r message=FALSE,warning=FALSE}
+library(scMC)
+library(Seurat)
+
+# Run scMC Seurat wrapper
+combined <- RunscMC(object.list)
+
+nPC = 40
+combined <- FindNeighbors(combined, reduction = "scMC", dims = 1:nPC)
+combined <- FindClusters(combined, algorithm = 4, resolution = 0.05)
+combined <- BuildClusterTree(combined, reorder = T, reorder.numeric = T, verbose = F)
+combined <- RunUMAP(combined, reduction='scMC', dims = 1:nPC)
+combined$scMC.clusters <- Idents(combined)
+combined.scMC <- combined
+```
+
+# Perform an integrated analysis using Seurat
+```{r message=FALSE,warning=FALSE}
+library(Seurat)
+
+# Run Seurat
+anchors <- FindIntegrationAnchors(object.list, dims = 1:nPC)
+combined <- IntegrateData(anchorset = anchors, dims = 1:nPC)
+
+DefaultAssay(combined) <- "integrated"
+combined <- ScaleData(combined, verbose = FALSE)
+combined <- RunPCA(combined, npcs = nPC, verbose = FALSE)
+combined <- RunUMAP(combined, reduction = "pca", dims = 1:nPC)
+combined <- FindNeighbors(combined, reduction = "pca", dims = 1:nPC)
+combined <- FindClusters(combined, resolution = 0.07)
+combined$Seurat.clusters <- Idents(combined)
+combined.seurat <- combined
+```
+
+
+# Perform an integrated analysis using Harmony
+```{r message=FALSE,warning=FALSE}
+library(harmony)
+library(dplyr)
+
+# Run Harmony
+combined <- merge(x = object.list[[1]],y = object.list[2:length(x = object.list)])
+combined <- combined %>%
+  NormalizeData(verbose = FALSE) %>%
+  FindVariableFeatures(selection.method = "vst") %>% 
+  ScaleData(verbose = FALSE) %>% 
+  RunPCA(pc.genes = combined@var.genes, npcs = 40, verbose = FALSE)
+combined <- combined %>% 
+  RunHarmony("sample.name", plot_convergence = F)
+
+combined <- combined %>% 
+  RunUMAP(reduction = "harmony", dims = 1:nPC) %>% 
+  FindNeighbors(reduction = "harmony", dims = 1:nPC) %>% 
+  FindClusters(resolution = 0.06) %>% 
+  identity()
+combined$Harmony.clusters <- Idents(combined)
+combined.harmony <- combined
+```
+
+# Perform an integrated analysis using LIGER
+```{r message=FALSE,warning=FALSE, results = "hide"}
+library(liger)
+library(SeuratWrappers)
+
+# Run LIGER
+combined <- merge(x = object.list[[1]],y = object.list[2:length(x = object.list)])
+combined <- NormalizeData(combined)
+combined <- FindVariableFeatures(combined)
+combined <- ScaleData(combined, split.by = "sample.name", do.center = FALSE)
+
+combined <- RunOptimizeALS(combined, k = 40, split.by = "sample.name", verbose = FALSE)
+combined <- RunQuantileNorm(combined, split.by = "sample.name")
+combined <- FindNeighbors(combined, reduction = "iNMF", dims = 1:nPC)
+combined <- FindClusters(combined, resolution = 0.06)
+combined <- RunUMAP(combined, dims = 1:ncol(combined[["iNMF"]]), reduction = "iNMF")
+combined$LIGER.clusters <- Idents(combined)
+combined.liger <- combined
+```
+
+# Visualization and comparison
+```{r, fig.width=10.5,fig.height = 3.5,  fig.wide = TRUE, fig.align = "center"}
+library(patchwork)
+library(ggplot2)
+
+combined.all <- list(combined.scMC, combined.seurat, combined.harmony, combined.liger)
+methods <- c("scMC", "Seurat", "Harmony", "LIGER")
+for (i in 1:length(combined.all)) {
+  combined <- combined.all[[i]]
+  combined$sample.name[combined$sample.name == "Hh activation"] <- "Hh"
+  new.order <- c("Hh-inactive Fib", "Hh-active Fib","Immune","Endotheial", "Muscle", "Schwann")
+  combined$annotated.labels <- factor(combined$clusters.final, levels = new.order)
+  DefaultAssay(combined) <- "RNA"
+  # Visualize cells onto the low-dimensional space
+gg <- DimPlot(combined, group.by = c("sample.name", "annotated.labels",paste0(methods[i], ".clusters")),pt.size = 0.0001, ncol = 3)  +
+  plot_annotation(paste0('Integrated analysis using ', methods[i]), theme = theme(plot.title = element_text(size = 16, hjust = 0.5, face = "bold", color="red"))) & NoAxes()
+print(gg)
+
+# Feature plot of fibroblast marker genes
+# Overlay the expression levels of fibroblasts pan-markers (Pdgfra and Lox) and Hh-active fibroblast markers (Ptch1 and Wif1) onto the UMAP space
+features = c('Pdgfra','Lox','Ptch1','Wif1')
+gg <- FeaturePlot(combined, features = features, ncol = 4) +
+  plot_annotation(paste0('Integrated analysis using ', methods[i]), theme = theme(plot.title = element_text(size = 16, hjust = 0.5, face = "bold", color="red"))) & NoAxes()
+print(gg)
+}
+
+```
+
+As shown in the integrated UMAP space above, scMC is able to reveal one specific fibroblast subpopulation (marked by high Ptch1+ cells) upon Hedgehog activation compared to the control condition, while other methods fail to detect such an important change during mouse skin wound healing. scMC uses Leiden algorithm for clustering by default. The performance of Seurat, Harmony and LIGER retains similar when using the Leiden algorithm for clustering compared to the Louvain algorithm, on this dataset. 
+ 
+
+```{r}
+sessionInfo()
+```
+
+
+
+

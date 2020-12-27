@@ -1,0 +1,224 @@
+
+---
+title: 'Demo of scMC using mouse skin dermis scRNA-seq data '
+author: "Lihua Zhang"
+date: "`r format(Sys.time(), '%d/%m/%y')`"
+output:
+  html_document: default
+mainfont: Arial
+vignette: |
+  %\VignetteIndexEntry{Integrating and comparing multiple single cell genomic datasets using scMC} %\VignetteEngine{knitr::rmarkdown} %\VignetteEncoding{UTF-8}
+---
+
+```{r setup, include = FALSE}
+knitr::opts_chunk$set(
+  collapse = TRUE,
+  comment = "#>",
+  root.dir = './'
+)
+```
+
+We showcase scMC’s capability of detecting context-shared and -specific biological signals by applying it to two mouse skin scRNA-seq datasets containing cells from control and Hedgehog (Hh) activation conditions during skin wound healing. 
+
+To make it easy to run scMC in most common scRNA-seq data analysis pipelines, the implementent of scMC is seamlessly compatible with the workflow of Seurat package. In sum, scMC pipeline consists of the following three major parts:
+
+* Set up a list of Seurat objects (one per dataset) and preprocess each dataset seperately
+
+* Perform an integrated analysis using scMC by taking an input a list of Seurat objects
+
+* Run the standard workflow for downstream analyses such as clustering and visualization
+
+scMC's workflow closely follows the Seurat vignette: [https://satijalab.org/seurat/v3.0/immune_alignment.html](https://satijalab.org/seurat/v3.0/immune_alignment.html)
+
+## Load the required libraries
+```{r message=FALSE,warning=FALSE}
+library(scMC)
+library(Seurat)
+library(patchwork)
+library(dplyr)
+library(ggplot2)
+```
+
+## Load data
+The scRNA datasets we demonstrated here, including two count data matrices for the control and Hh activation conditions, can be downloaded via this shared Google Drive [link](https://drive.google.com/file/d/182EMDA0x5fr2nV7MbC4SDISSjFBS1E0p/view?usp=sharing).
+
+```{r}
+load("/Users/suoqinjin/Documents/scMC-master/tutorial/data_dermis.rda")
+data.input <- data_dermis # a list of count data matrix, one per dataset
+sample.name <- names(data.input)
+```
+
+# Part I: Set up a list of Seurat objects, one per dataset
+```{r}
+object.list <- vector("list", length(sample.name))
+names(object.list) <- sample.name
+for (i in 1:length(object.list)) {
+  # Initialize the Seurat object with the raw (non-normalized data) for each dataset
+  x <- CreateSeuratObject(counts = data.input[[i]], min.cells = 3, min.features = 200, project = sample.name[i])
+  # calculate mitochondrial QC metrics
+  x[["percent.mt"]] <- PercentageFeatureSet(x, pattern = "^mt-")
+  x$sample.name <- sample.name[i]
+  x <- RenameCells(x, new.names = paste0(Cells(x), "_", x$sample.name))
+  object.list[[i]] <-  x
+  rm(x)
+}
+lapply(object.list, function(x) dim(x@assays$RNA@data))
+```
+
+## Step1. preprocess each dataset seperately
+###  QC and selecting cells for further analysis
+```{r}
+nFeature_RNA1 = c(7000, 7000); nCount_RNA1 = c(40000, 40000); percent.mt1 = c(10, 10)
+for (i in 1:length(object.list)) {
+  # Visualize QC metrics as a violin plot
+ VlnPlot(object.list[[i]], features = c("nFeature_RNA", "nCount_RNA", "percent.mt"), ncol = 3, pt.size = 0.0001,cols=c("#a6cee3")) + geom_hline(yintercept = percent.mt1[i], linetype = 2)
+ # VlnPlot(object.list[[i]], features = c("percent.mt"))+ geom_hline(yintercept = 15, linetype = 2)
+  Sys.sleep(2)
+  plot1 <- FeatureScatter(object.list[[i]], feature1 = "nCount_RNA", feature2 = "percent.mt", pt.size = 0.1,cols=c("black")) + geom_hline(yintercept = percent.mt1[i], linetype = 2)
+  plot2 <- FeatureScatter(object.list[[i]], feature1 = "nCount_RNA", feature2 = "nFeature_RNA", pt.size = 0.1,cols=c("black")) + geom_hline(yintercept = nFeature_RNA1[i], linetype = 2)
+wrap_plots(plots = plot1, plot2, ncol = 2)
+  object.list[[i]] <- subset(object.list[[i]], subset = (nFeature_RNA < nFeature_RNA1[i]) & (nCount_RNA < nCount_RNA1[i]) & (percent.mt < percent.mt1[i]))
+}
+lapply(object.list, function(x) dim(x@assays$RNA@data))
+# save the Seurat object of each dataset (optional)
+save(object.list, file = "SeuratObject.list_dermis.RData")
+```
+
+
+### Normalizing, scaling the data and feature selection
+```{r, warning=FALSE}
+object.list <- lapply(X = object.list, FUN = function(x) {
+  x <- NormalizeData(x, verbose = FALSE)
+  x <- FindVariableFeatures(x, verbose = FALSE)
+  # perform scaling on the previously identified variable features
+  x <- ScaleData(x, verbose = FALSE)
+})
+```
+
+
+# Part II: Perform an integrated analysis using scMC
+
+**Note**: We have wrritten a Seurat Wrapper function `RunscMC` to simply run the following Steps 2-6. That is, users can run `combined <- RunscMC(object.list)` to replace the Steps 2-6. See the tutorial "demo_scMC_Seurat_Wrapper_dermis" for details. 
+
+```{r,message=FALSE,warning=FALSE}
+future::plan("multiprocess", workers = 4)
+options(future.rng.onMisuse="ignore")
+```
+## Step2. Identify putative clusters for each dataset
+```{r,message=FALSE,warning=FALSE}
+# compute SNN
+object.list <- identifyNeighbors(object.list)
+# identify clusters
+object.list <- identifyClusters(object.list)
+```
+
+## Step3. Detect cluster-specific cells with high confident
+```{r}
+features.integration = identifyIntegrationFeatures(object.list)
+object.list <- identifyConfidentCells(object.list, features.integration)
+```
+
+## Step4. Identify marker genes associated with the putative cell clusters in each dataset
+```{r}
+object.list <- identifyMarkers(object.list)
+```
+
+## Step 5. Learn technical variation between any two datasets
+```{r}
+structured_mat <- learnTechnicalVariation(object.list, features.integration)
+```
+
+## Step 6. Learn a shared embedding of cells across all datasets after removing technical variation
+
+```{r}
+combined <- merge(x = object.list[[1]],y = object.list[2:length(x = object.list)])
+combined@meta.data <- combined@meta.data %>% select(-starts_with("RNA_snn_res"))
+combined$sample.name <- factor(combined$sample.name, levels = sample.name)
+VariableFeatures(combined) <- features.integration
+combined <- integrateData(combined, structured_mat) # return an updated Seurat object with a new reduced dimensional space named "scMC"
+```
+
+scMC outputs a shared reduced dimensional embedding of cells that retains the biological variation while removing the technical variation. This shared embedding can be used for a variety of single cell analysis tasks, such as low-dimensional visualization, cell clustering and pseudotemporal trajectory inference. 
+
+
+# Part III: Run the standard Seurat workflow for downstream analyses such as clustering and visualization
+
+We can now run standard Seurat workflow for downstream analyses. Users only need to make one change to your code, i.e., using the scMC embeddings instead of PCA.
+
+## Run the standard workflow for clustering
+```{r,message=FALSE,warning=FALSE}
+nPC = 40
+combined <- FindNeighbors(combined, reduction = "scMC", dims = 1:nPC)
+# scMC uses Leiden algorithm for clustering by default. However, users can also use other algorithms inplemented in Seurat
+combined <- FindClusters(combined, algorithm = 4, resolution = 0.05)
+combined <- BuildClusterTree(combined, reorder = T, reorder.numeric = T, verbose = F)
+combined <- RunUMAP(combined, reduction='scMC', dims = 1:nPC)
+```
+### Quick visualization of cells onto the low-dimensional space
+```{r, fig.width=8,fig.height = 3.5,  fig.wide = TRUE, fig.align = "center"}
+DimPlot(combined, reduction = "umap", group.by = c("sample.name","ident"))
+```
+
+## Visualization and annotation
+### Feature plot of known marker genes
+```{r, fig.width=9.5, fig.height=5.5,  fig.wide = TRUE, fig.align = "center"}
+features = c('Lox','Ptch1','Cd68','Pecam1','Myh11','Plp1')
+FeaturePlot(combined, features = features, ncol = 3)
+```
+
+### Annotation
+```{r,message=FALSE,warning=FALSE}
+new.cluster.ids <-c("Immune", "Hh-inactive Fib", "Hh-active Fib",  "Endotheial", "Schwann","Muscle")
+names(new.cluster.ids) <- levels(combined)
+combined <- RenameIdents(combined, new.cluster.ids)
+new.order <- c("Hh-inactive Fib", "Hh-active Fib","Immune","Endotheial", "Muscle", "Schwann")
+combined@active.ident <- factor(combined@active.ident, levels = new.order)
+```
+
+### Visualize cells onto the low-dimensional space
+```{r, fig.width=9.5,fig.height = 3.5,  fig.wide = TRUE, fig.align = "center"}
+DimPlot(combined, reduction = "umap", group.by = c("sample.name", "ident"))
+# Split the plot into each dataset
+DimPlot(combined, reduction = "umap", split.by = "sample.name")
+```
+
+### Heatmap of marker genes
+```{r, fig.width=6,fig.height = 8,  fig.wide = TRUE, fig.align = "center"}
+combined <- ScaleData(combined, feature = rownames(combined), verbose = FALSE)
+markers <- FindAllMarkers(combined, only.pos = TRUE, min.pct = 0.25, logfc.threshold = 0.25)
+top10 <- markers %>% group_by(cluster) %>% top_n(n = 10, wt = avg_log2FC)
+DoHeatmap(combined, features=top10$gene)
+```
+
+### Violin plot
+#### Stacked violin plot
+```{r, fig.width=5,fig.height = 5,  fig.wide = TRUE, fig.align = "center", message=FALSE,warning=FALSE}
+features = c('Lox','Ptch1','Cd68','Pecam1','Myh11','Plp1')
+gg <- StackedVlnPlot(combined, features = features, colors.ggplot = T)
+gg
+```
+
+#### Splitted violin plot
+```{r, fig.width=5,fig.height = 5,  fig.wide = TRUE, fig.align = "center",message=FALSE,warning=FALSE}
+features = c('Lox','Ptch1','Cd68','Pecam1','Myh11','Plp1')
+gg <- StackedVlnPlot(combined, features = features, split.by = "sample.name", colors.ggplot = T)
+gg
+```
+
+
+# Part IV: Downstream analysis
+```{r, message=FALSE,warning=FALSE}
+combined$clusters.final <- Idents(combined)
+```
+## Compute the cellular compositions 
+```{r, fig.width=7,fig.height = 3.5,  fig.wide = TRUE, fig.align = "center"}
+gg1 <- computeProportion(combined, x = "clusters.final", fill = "sample.name")
+gg2 <- computeProportion(combined, x = "sample.name", fill = "clusters.final")
+gg1 + gg2
+```
+
+# Save data
+```{r, message=FALSE,warning=FALSE}
+combined <- ScaleData(combined) # only store the highly variable genes
+save(combined, file = "demo_scMC_dermis.RData")
+```
