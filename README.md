@@ -12,7 +12,7 @@ scMC R package can be easily installed from Github using devtools:
 devtools::install_github("amsszlh/scMC")
 ```
 
-To make it easy to run scMC in most common scRNA-seq data analysis pipelines, scMC is now implemented within Seurat V3 workflow. Please also install Seurat R pacakge (>= 3.2.1) via ```install.packages('Seurat')```. For the standalone implementent of scMC and reproducing results from manuscript, please check out [previous release](http://doi.org/10.5281/zenodo.4395119).
+To make it easy to run scMC in most common scRNA-seq data analysis pipelines, scMC is now implemented within Seurat V3 workflow. Please also **install Seurat R pacakge (>= 3.2.1)** via ```install.packages('Seurat')```. For the standalone implementent of scMC and reproducing results from manuscript, please check out [previous release](http://doi.org/10.5281/zenodo.4395119).
  
 ### Installation of other dependencies
 - Install Leiden python pacakge for identifying cell clusters: ```pip install leidenalg```. Please check [here](https://github.com/vtraag/leidenalg) if you encounter any issue.
@@ -21,7 +21,7 @@ To make it easy to run scMC in most common scRNA-seq data analysis pipelines, sc
 ## Tutorials
 The implementent of scMC is now seamlessly compatible with the workflow of Seurat V3 package. The runtime is also significantly reduced now. 
 
-Please check the tutorial directory of the repo.
+Please check out the full workflow
 
 - [Demo of scMC workflow](https://htmlpreview.github.io/?https://github.com/amsszlh/scMC/blob/master/tutorial/demo_scMC_dermis.html)
 
