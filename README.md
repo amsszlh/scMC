@@ -12,7 +12,7 @@ scMC R package can be easily installed from Github using devtools:
 devtools::install_github("amsszlh/scMC")
 ```
 
-To make it easy to run scMC in most common scRNA-seq data analysis pipelines, scMC is now implemented within Seurat V3 workflow. Please also **install Seurat R pacakge (>= 3.2.1)** via ```install.packages('Seurat')```. For the standalone implementent of scMC and reproducing results from manuscript, please check out [previous release](http://doi.org/10.5281/zenodo.4395119).
+To make it easy to run scMC in most common scRNA-seq data analysis pipelines, scMC is now implemented within Seurat V3 workflow. Please also **[install Seurat R pacakge (>= 3.2.1)](https://satijalab.org/seurat/install.html)** via ```install.packages('Seurat')```. For the standalone implementent of scMC and reproducing results from manuscript, please check out [previous release](http://doi.org/10.5281/zenodo.4395119).
  
 ### Installation of other dependencies
 - Install Leiden python pacakge for identifying cell clusters: ```pip install leidenalg```. Please check [here](https://github.com/vtraag/leidenalg) if you encounter any issue.
@@ -45,7 +45,7 @@ For details, please check out
 
 Here we also showcase scMC’s superior performance in detecting context-shared and -specific biological signals by applying it to a mouse skin scRNA-seq dataset and comparing it with other methods (Seurat, Harmony and LIGER)
 
-- [Benchmarking of scMC against other methods](https://htmlpreview.github.io/?https://github.com/amsszlh/scMC/blob/master/tutorial/demo_scMC_Seurat_Wrapper_dermis.html)
+- [Benchmarking of scMC against other methods](https://htmlpreview.github.io/?https://github.com/amsszlh/scMC/blob/master/tutorial/benchmark_against_other_methods.html)
 
 
 ## Help
